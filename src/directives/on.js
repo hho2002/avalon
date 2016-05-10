@@ -1,5 +1,6 @@
 var markID = require('../seed/lang.share').getLongID
-
+var Cache = require('../seed/cache')
+var eventCache = new Cache(128)
 var quote = avalon.quote
 
 //Ref: http://developers.whatwg.org/webappapis.html#event-handler-idl-attributes
@@ -15,14 +16,19 @@ avalon.directive('on', {
     parse: function (binding, num) {
         var vars = binding.expr.replace(rstring, ' ').replace(rfilters, '').match(rvar)
         var canCache = vars.every(function (el) {
-            return el.charAt(0) === '@' || el === '$event'
+            return el.charAt(0) === '@' || el.charAt(0) === '#' || el === '$event'
         })
         var vmDefine = 'vnode' + num + '.onVm = __vmodel__\n'
         var pid = quote(binding.name)
        
         if (canCache) {
-            var fn = Function('return ' + avalon.parseExpr(binding, 'on'))()
-            var uuid = markID(fn)
+            var key = binding.expr
+            var fn = eventCache.get(key)
+            if(!fn){
+                var fn = Function('return ' + avalon.parseExpr(binding, 'on'))()
+                var uuid = markID(fn)
+               eventCache.put(key, fn)
+            }
             avalon.eventListeners[uuid] = fn
             return vmDefine + 'vnode' + num + '.props[' + pid +
                     '] = avalon.eventListeners.' + uuid + '\n'

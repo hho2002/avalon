@@ -1,6 +1,11 @@
 #avalon 2 
 
-基于avalon1.6内部版本研发出来，对早期版本不兼容
+基于avalon1.6内部版本研发出来，兼容IE6及各种山寨浏览器,
+视浏览器的支持情况使用VBScript/Descriptors/Proxy创建vm,
+以求取最高的性能
+###[avalon2官网](http://avalonjs.coding.me/)
+
+<img src='https://github.com/RubyLouvre/avalon/blob/master/structure.jpg'/>
 
 主要特征如下：
 
@@ -42,6 +47,7 @@
    <!--ms-for-end:-->
 
    ```
+   上面的@符合是用来标识此变量或方法是来自vm的,此外为了防止与.NET的razor引擎相冲突,也可以使用#符合
    for指令拥有4个数组(或对象)过滤器(selectBy,orderBy,limitBy,filterBy) 
 
 	+ selectBy(keyList)用于取代 data-with-sorted,从一个对象取得指定的属性值
@@ -63,3 +69,10 @@
     支持<slot name='xx'></slot>这样的DOM插槽 机制<br/>
     支持组件套组件
 14. 测试 karma start
+15.  ms-important与ms-controller对应的vm.$id一个页面上只能用一次,不能存在多个同名的ms-controller.
+     ms-important由于不继承上级的$element与$render,每次只更新它所在的区域,善用它能大大提高性能
+```html
+   <div ms-controller='test'>{{@aaa}}</div>
+   <div ms-controller='test'>{{@bbb}}<!--test已经使用了1次!会导致程序出错--></div>
+   <div ms-important='test'>{{@bbb}}<!--test已经使用了2次!会导致程序出错--></div>
+```

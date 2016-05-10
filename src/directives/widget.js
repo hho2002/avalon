@@ -1,5 +1,3 @@
-
-var skipArray = require('../vmodel/parts/skipArray')
 var disposeDetectStrategy = require('../component/disposeDetectStrategy')
 var patch = require('../strategy/patch')
 
@@ -7,84 +5,67 @@ var patch = require('../strategy/patch')
 var dir = avalon.directive('widget', {
     priority: 4,
     parse: function (binding, num, elem) {
+        var isVoidTag = !!elem.isVoidTag
+        elem.isVoidTag = true
         var wid = elem.props.wid || (elem.props.wid = avalon.makeHashCode('w'))
         avalon.resolvedComponents[wid] = {
             props: avalon.shadowCopy({}, elem.props),
             template: elem.template
         }
-        var ret = ''
-        ret += 'vnode' + num + '.props.wid = "' + wid + '"\n'
-        ret += 'vnode' + num + '.template = ' + avalon.quote(elem.template) + '\n'
-        ret += 'vnode' + num + '.props["ms-widget"] = ' + avalon.parseExpr(binding, 'widget') + '\n'
-        ret += 'vnode' + num + ' = avalon.component(vnode' + num + ', __vmodel__)\n'
-        ret += 'if(typeof vnode' + num + '.render === "string"){\n'
-        ret += 'avalon.__widget = [];\n'
-        ret += '__vmodel__ = vnode' + num+'.vmodel\n'
-        ret += 'try{eval(" new function(){"+ vnode' + num + '.render +"}");\n'
-        ret += '}catch(e){avalon.log(e)}\n'
-        ret += 'vnode' + num + ' = avalon.renderWidget(avalon.__widget[0])\n}\n'
-        return ret
+        var ret = [
+            'vnode' + num + '._isVoidTag = ' + isVoidTag,
+            'vnode' + num + '.props.wid = "' + wid + '"',
+            'vnode' + num + '.template = ' + avalon.quote(elem.template),
+            'vnode' + num + '.props["ms-widget"] = ' + avalon.parseExpr(binding, 'widget'),
+            'vnode' + num + ' = avalon.component(vnode' + num + ', __vmodel__)',
+            'if(typeof vnode' + num + '.render === "string"){',
+            'avalon.__widget = [];',
+            'var __backup__ = __vmodel__;',
+            '__vmodel__ = vnode' + num + '.vmodel;',
+            'try{eval(" new function(){"+ vnode' + num + '.render +"}");',
+            '}catch(e){avalon.warn(e)', '}',
+            'vnode' + num + ' = avalon.renderWidget(avalon.__widget[0])', '}',
+            '__vmodel__ = __backup__;']
+        return ret.join('\n') + '\n'
     },
-    define: function (topVm, defaults, options, accessors) {
-        var after = avalon.mix({}, defaults, options)
-        var events = {}
-        //绑定生命周期的回调
-        'onInit onReady onViewChange onDispose'.replace(/\S+/g, function (a) {
-            if (typeof after[a] === 'function')
-                events[a] = after[a]
-            delete after[a]
-        })
-        var vm = avalon.mediatorFactory(topVm, after)
-        if (accessors.length) {
-            accessors.forEach(function (bag) {
-                vm = avalon.mediatorFactory(vm, bag)
-            })
-        }
-        ++avalon.suspendUpdate
-        for (var i in after) {
-            if (skipArray[i])
-                continue
-            vm[i] = after[i]
-        }
-        --avalon.suspendUpdate
-        for (i in events) {
-            vm.$watch(i, events[i])
-        }
-        return vm
+    define: function () {
+        return avalon.mediatorFactory.apply(this, arguments)
     },
     diff: function (cur, pre, steps) {
         var coms = avalon.resolvedComponents
         var wid = cur.props.wid
-        
         var docker = coms[wid]
-       
-        if (!docker.renderCount) {
-            cur.change = [this.replaceByComment]
+        if (!docker || !docker.renderCount) {
             steps.count += 1
+            cur.change = [this.replaceByComment]
         } else if (!pre.props.resolved) {
-
             cur.steps = steps
             var list = cur.change || (cur.change = [])
-            avalon.Array.ensure(list, this.replaceByComponent)
+            if(avalon.Array.ensure(list, this.replaceByComponent)){
+                 steps.count += 1
+            }
             cur.afterChange = [
                 function (dom, vnode) {
-                    vnode.vmodel.$element = dom
                     cur.vmodel.$fire('onReady', {
                         type: 'ready',
                         target: dom,
+                        wid: wid,
                         vmodel: vnode.vmodel
                     })
                     docker.renderCount = 2
                 }
             ]
-
+            //处理模板不存在指令的情况
+            if (cur.children.length === 0) {
+                steps.count += 1
+            }
+            //处理模板不存在指令的情况
         } else {
-
-            var needUpdate = !cur.diff || cur.diff(cur, pre)
+            var needUpdate = !cur.diff || cur.diff(cur, pre, steps)
             cur.skipContent = !needUpdate
-
             var viewChangeObservers = cur.vmodel.$events.onViewChange
             if (viewChangeObservers && viewChangeObservers.length) {
+                steps.count += 1
                 cur.afterChange = [function (dom, vnode) {
                         var preHTML = avalon.vdomAdaptor(pre, 'toHTML')
                         var curHTML = avalon.vdomAdaptor(cur, 'toHTML')
@@ -92,12 +73,14 @@ var dir = avalon.directive('widget', {
                             cur.vmodel.$fire('onViewChange', {
                                 type: 'viewchange',
                                 target: dom,
+                                wid: wid,
                                 vmodel: vnode.vmodel
                             })
                         }
                         docker.renderCount++
                     }]
             }
+
         }
     },
     addDisposeMonitor: function (dom) {
@@ -135,6 +118,7 @@ var dir = avalon.directive('widget', {
         if (!hasDetect) {
             dir.addDisposeMonitor(com)
         }
+        return false
     }
 })
 

@@ -1,12 +1,10 @@
-
-
 /**
  * ------------------------------------------------------------
  * avalon基于纯净的Object.defineProperties的vm工厂 
  * masterFactory,slaveFactory,mediatorFactory, ArrayFactory
  * ------------------------------------------------------------
  */
-var share = require("./parts/modern")
+var share = require('./parts/modern')
 var isSkip = share.isSkip
 var $$midway = share.$$midway
 var $$skipArray = share.$$skipArray
@@ -37,8 +35,8 @@ function masterFactory(definition, heirloom, options) {
     options = options || {}
     heirloom = heirloom || {}
     var accessors = {}
-    var hashcode = makeHashCode("$")
-    var pathname = options.pathname || ""
+    var hashcode = makeHashCode('$')
+    var pathname = options.pathname || ''
     options.id = options.id || hashcode
     options.hashcode = hashcode
     var key, sid, spath
@@ -47,8 +45,8 @@ function masterFactory(definition, heirloom, options) {
             continue
         var val = keys[key] = definition[key]
         if (!isSkip(key, val, $skipArray)) {
-            sid = options.id + "." + key
-            spath = pathname ? pathname + "." + key : key
+            sid = options.id + '.' + key
+            spath = pathname ? pathname + '.' + key : key
             accessors[key] = makeAccessor(sid, spath, heirloom)
         }
     }
@@ -88,9 +86,9 @@ function slaveFactory(before, after, heirloom, options) {
             if (accessor && accessor.get) {
                 accessors[key] = accessor
             } else {
-                sid = options.id + "." + key
-                spath = pathname ? pathname + "." + key : key
-                accessors[key] = makeObservable(sid, spath, heirloom)
+                sid = options.id + '.' + key
+                spath = pathname ? pathname + '.' + key : key
+                accessors[key] = makeAccessor(sid, spath, heirloom)
             }
         }
     }
@@ -115,24 +113,43 @@ function slaveFactory(before, after, heirloom, options) {
 }
 
 $$midway.slaveFactory = slaveFactory
-
-function mediatorFactory(before, after, heirloom) {
+var empty = {}
+function mediatorFactory(before, after) {
     var keys = {}
     var accessors = {}
-
-    //收集所有键值对及访问器属性
-    for (var key in before) {
-        keys[key] = before[key]
-        var accessor = Object.getOwnPropertyDescriptor(before, key)
-        if (accessor.set) {
-            accessors[key] = accessor
+    var unresolve = {}
+    var heirloom = {}
+    var arr = avalon.slice(arguments)
+    var config
+    var configName
+    for (var i = 0; i < arr.length; i++) {
+        var obj = arr[i]
+        //收集所有键值对及访问器属性
+        for (var key in obj) {
+            keys[key] = obj[key]
+            var accessor = Object.getOwnPropertyDescriptor(obj, key)
+            if (accessor.set) {
+                if (arr.indexOf(obj[key]) === -1) {
+                    accessors[key] = accessor
+                } else { //去掉vm那个配置对象
+                    config = keys[key]
+                    configName = key
+                    delete keys[key]
+                }
+            } else if (typeof keys[key] !== 'function') {
+                unresolve[key] = 1
+            }
         }
     }
-    for (var key in after) {
-        keys[key] = after[key]
-        var accessor = Object.getOwnPropertyDescriptor(after, key)
-        if (accessor.set) {
-            accessors[key] = accessor
+    if(typeof this === 'function'){
+        this(keys, unresolve)
+    }
+    for (key in unresolve) {
+        if ($$skipArray[key] || accessors[key])
+            continue
+        if (!isSkip(key, keys[key], empty)) {
+            accessors[key] = makeAccessor(before.$id + '.' + key, key, heirloom)
+            accessors[key].set(keys[key])
         }
     }
 
@@ -143,18 +160,27 @@ function mediatorFactory(before, after, heirloom) {
         if (!accessors[key]) {//添加不可监控的属性
             $vmodel[key] = keys[key]
         }
+        if (configName && accessors[key] && config.hasOwnProperty(key)) {
+            var $$ = accessors[key]
+            if (!$$.get.$decompose) {
+                $$.get.$decompose = {}
+            }
+            $$.get.$decompose[configName+'.'+key] = $vmodel
+        }
         keys[key] = true
     }
 
-    makeObserver($vmodel, heirloom || {}, keys, accessors, {
+    makeObserver($vmodel, heirloom, keys, accessors, {
         id: before.$id,
         hashcode: makeHashCode("$"),
         master: true
     })
-    if(after.$id && before.$element){
-        after.$element = before.$element
-        after.$render = before.$render
-    }
+    // if (after.$id && before.$element) {
+    //     if (!after.$element) {
+    //         after.$element = before.$element
+    //         after.$render = before.$render 
+    //     } 
+    // }
     return $vmodel
 }
 

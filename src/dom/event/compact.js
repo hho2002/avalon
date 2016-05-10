@@ -91,8 +91,8 @@ function collectHandlers(elem, type, handlers) {
     var value = elem.getAttribute('avalon-events')
     if (value && (elem.disabled !== true || type !== 'click')) {
         var uuids = []
-        var reg = typeRegExp[type] || (typeRegExp[type] = new RegExp(type+'\\:([^?\s]+)','g'))
-        value.replace(reg, function(a, b){
+        var reg = typeRegExp[type] || (typeRegExp[type] = new RegExp(type + '\\:([^?\s]+)', 'g'))
+        value.replace(reg, function (a, b) {
             uuids.push(b)
             return a
         })
@@ -125,7 +125,7 @@ function dispatch(event) {
                 !event.isImmediatePropagationStopped) {
             var fn = avalon.eventListeners[uuid]
             if (fn) {
-                var vm = rhandleHasVm.test(uuid) ? handler.elem._ms_context_: 0
+                var vm = rhandleHasVm.test(uuid) ? handler.elem._ms_context_ : 0
                 if (vm && vm.$hashcode === false) {
                     return avalon.unbind(elem, type, fn)
                 }
@@ -255,7 +255,7 @@ if (!('onmouseenter' in root)) {
                     if (!t || (t !== elem && !(elem.compareDocumentPosition(t) & 16))) {
                         delete e.type
                         e.type = origType
-                        return fn.apply(elem, arguments)
+                        return fn.apply(this, arguments)
                     }
                 }
             }
@@ -281,7 +281,7 @@ if (!('oninput' in document.createElement('input'))) {
             return function (e) {
                 if (e.propertyName === 'value') {
                     e.type = 'input'
-                    return fn.apply(elem, arguments)
+                    return fn.apply(this, arguments)
                 }
             }
         }
@@ -299,14 +299,17 @@ if (document.onmousewheel === void 0) {
         type: fixWheelType,
         fix: function (elem, fn) {
             return function (e) {
-                e.wheelDeltaY = e.wheelDelta = e[fixWheelDelta] > 0 ? -120 : 120
+                var delta = e[fixWheelDelta] > 0 ? -120 : 120
+                e.wheelDelta = ~~elem._ms_wheel_ + delta
+                elem._ms_wheel_ = e.wheelDeltaY = e.wheelDelta
+
                 e.wheelDeltaX = 0
                 if (Object.defineProperty) {
                     Object.defineProperty(e, 'type', {
                         value: 'mousewheel'
                     })
                 }
-                return fn.apply(elem, arguments)
+                return fn.apply(this, arguments)
             }
         }
     }
@@ -323,4 +326,13 @@ avalon.fn.unbind = function (type, fn, phase) {
         avalon.unbind(this[0], type, fn, phase)
     }
     return this
+}
+avalon.$$unbind = function (node) {
+    var nodes = node.getElementsByTagName('*')
+    //IE6-7这样取所有子孙节点会混入注释节点
+    avalon.each(nodes, function (i, el) {
+        if (el.nodeType === 1 && el.getAttribute('avalon-events')) {
+            avalon.unbind(el)
+        }
+    })
 }

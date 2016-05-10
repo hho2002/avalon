@@ -219,7 +219,7 @@ if (!('onmouseenter' in root)) {
                     if (!t || (t !== elem && !(elem.compareDocumentPosition(t) & 16))) {
                         delete e.type
                         e.type = origType
-                        return fn.call(elem, e)
+                        return fn.call(this, e)
                     }
                 }
             }
@@ -253,7 +253,7 @@ if (document.onmousewheel === void 0) {
                 Object.defineProperty(e, 'type', {
                     value: 'mousewheel'
                 })
-                fn.call(elem, e)
+                fn.call(this, e)
             }
         }
     }
@@ -270,4 +270,10 @@ avalon.fn.unbind = function (type, fn, phase) {
         avalon.unbind(this[0], type, fn, phase)
     }
     return this
+}
+avalon.$$unbind = function(node) {
+    var nodes = node.querySelectorAll('[avalon-events]')
+    avalon.each(nodes, function (i, el) {
+        avalon.unbind(el)
+    })
 }

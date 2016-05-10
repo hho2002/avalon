@@ -26,15 +26,11 @@ avalon.directive('html', {
         if (node.nodeType !== 1) {
             return
         }
-        var nodes = node.querySelectorAll('[avalon-events]')
-        avalon.each(nodes, function (el) {
-            avalon.unbind(el)
-        })
         //添加节点
         avalon.clearHTML(node)
         var fragment = document.createDocumentFragment()
         vnode.children.forEach(function (c) {
-            fragment.appendChild(avalon.vdomAdaptor(c, 'toDOM'))
+            c && fragment.appendChild(avalon.vdomAdaptor(c, 'toDOM'))
         })
     }
 })

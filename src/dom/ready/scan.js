@@ -12,10 +12,11 @@ function scan(nodes) {
                 avalon(elem).removeClass('ms-controller')
                 vm.$element = elem
                 var now = new Date()
-                var vtree = elem.vtree = avalon.lexer(elem.outerHTML)
+                //IE6-8下元素的outerHTML前面会有空白
+                elem.vtree = avalon.lexer(elem.outerHTML.trim())
                 var now2 = new Date()
                 avalon.log('create primitive vtree', now2 - now)
-                vm.$render = avalon.render(vtree)
+                vm.$render = avalon.render(elem.vtree)
                 var now3 = new Date()
                 avalon.log('create template Function ', now3 - now2)
                 avalon.rerenderStart = now3

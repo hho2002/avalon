@@ -1,7 +1,7 @@
 
 var $$midway = {}
 var $$skipArray = require('./skipArray')
-var dispatch = require('../../strategy/dispatch')
+var dispatch = require('./dispatch')
 var $emit = dispatch.$emit
 var $watch = dispatch.$watch
 
@@ -64,7 +64,7 @@ function modelAdaptor(definition, old, heirloom, options) {
 }
 $$midway.modelAdaptor = modelAdaptor
 
-var rtopsub = /([^.]+)\.(.+)/
+
 function makeAccessor(sid, spath, heirloom) {
     var old = NaN
     function get() {
@@ -85,30 +85,75 @@ function makeAccessor(sid, spath, heirloom) {
             }
             var older = old
             old = val
+
             var vm = heirloom.__vmodel__
             if (this.$hashcode && vm) {
                 //★★确保切换到新的events中(这个events可能是来自oldProxy)               
                 if (heirloom !== vm.$events) {
                     get.heirloom = vm.$events
                 }
-                $emit(get.heirloom[spath], vm, spath, val, older)
-                if (sid.indexOf('.*.') > 0) {//如果是item vm
-                    var arr = sid.match(rtopsub)
-                    var top = avalon.vmodels[ arr[1] ]
-                    if (top) {
-                        var path = arr[2]
-                        $emit(top.$events[ path ], vm, path, val, older)
-                    }
+                //如果这个属性是组件配置对象中的属性,那么它需要触发组件的回调
+                emitWidget(get.$decompose, spath, val, older)
+                //触发普通属性的回调
+                if (spath.indexOf('*') === -1) {
+                    $emit(get.heirloom[spath], vm, spath, val, older)
                 }
-               
-                var vid = vm.$id.split('.')[0]
+                //如果这个属性是数组元素上的属性
+                emitArray(sid, vm, spath, val, older)
+                //如果这个属性存在通配符
+                emitWildcard(get.heirloom, vm, spath, val, older)
+
                 avalon.rerenderStart = new Date
-                avalon.batch(vid, true)
+                var dotIndex = vm.$id.indexOf('.')
+                if (dotIndex > 0) {
+                    avalon.batch(vm.$id.slice(0, dotIndex), true)
+                } else {
+                    avalon.batch(vm, true)
+                }
 
             }
         },
         enumerable: true,
         configurable: true
+    }
+}
+
+var rtopsub = /([^.]+)\.(.+)/
+function emitArray(sid, vm, spath, val, older) {
+    if (sid.indexOf('.*.') > 0) {
+        var arr = sid.match(rtopsub)
+        var top = avalon.vmodels[ arr[1] ]
+        if (top) {
+            var path = arr[2]
+            $emit(top.$events[ path ], vm, spath, val, older)
+        }
+    }
+}
+
+function emitWidget(whole, spath, val, older) {
+    if (whole && whole[spath]) {
+        var wvm = whole[spath]
+        if (!wvm.$hashcode) {
+            delete whole[spath]
+        } else {
+            var wpath = spath.replace(/^[^.]+\./, '')
+            if (wpath !== spath) {
+                $emit(wvm.$events[wpath], wvm, wpath, val, older)
+            }
+        }
+    }
+}
+
+function emitWildcard(obj, vm, spath, val, older) {
+    if (obj.__fuzzy__) {
+        obj.__fuzzy__.replace(avalon.rword, function (expr) {
+            var list = obj[expr]
+            var reg = list.reg
+            if (reg && reg.test(spath)) {
+                $emit(list, vm, spath, val, older)
+            }
+            return expr
+        })
     }
 }
 
@@ -134,9 +179,9 @@ function define(definition) {
 function arrayFactory(array, old, heirloom, options) {
     if (old && old.splice) {
         var args = [0, old.length].concat(array)
-        ++avalon.suspendUpdate 
+        ++avalon.suspendUpdate
         old.splice.apply(old, args)
-        --avalon.suspendUpdate 
+        --avalon.suspendUpdate
         return old
     } else {
         for (var i in __array__) {
@@ -152,7 +197,7 @@ function arrayFactory(array, old, heirloom, options) {
                 vm.$fire(path, b, c)
                 if (!d && !avalon.suspendUpdate) {
                     avalon.rerenderStart = new Date
-                    avalon.batch(vm.$id, true)
+                    avalon.batch(vm, true)
                 }
             }
         }
@@ -180,7 +225,6 @@ var __array__ = {
             if (index > this.length) {
                 throw Error(index + 'set方法的第一个参数不能大于原数组长度')
             }
-            this.notify('*', val, this[index], true)
             this.splice(index, 1, val)
         }
     },

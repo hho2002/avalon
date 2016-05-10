@@ -1,11 +1,15 @@
 
 var VText = require('../vdom/VText')
 var outerTags = avalon.oneObject('wbr,xmp,template')
-
+var parseView = require('../strategy/parser/parseView')
 var resolvedComponents = avalon.resolvedComponents
 var skipWidget = {'ms-widget': 1, widget: 1, resolved: 1}
-var parseView = require('../strategy/parser/parseView')
-
+var componentEvents = avalon.oneObject('onInit,onReady,onViewChange,onDispose')
+var moreSkip = avalon.mix({
+    is: 1,
+    diff: 1,
+    define: 1
+}, componentEvents)
 avalon.document.createElement('slot')
 
 avalon.component = function (name, definition) {
@@ -13,25 +17,12 @@ avalon.component = function (name, definition) {
     if (typeof name === 'string') {
         if (!avalon.components[name]) {
             avalon.components[name] = definition
-        }
-        //这里没有返回值
+        }//这里没有返回值
     } else {
 
         var node = name //node为页面上节点对应的虚拟DOM
         var topVm = definition
-
         var wid = node.props.wid
-        //将ms-widget的值合并成一个纯粹的对象,并且将里面的vm抽取vms数组中
-        var options = node.props['ms-widget'] || {}
-        var vms = []
-        if (Array.isArray(options)) {
-            vms = options.filter(function (el) {
-                return el.$id
-            })
-            options = avalon.mix.apply({}, options)
-        } else if (options.$id) {
-            vms = [options]
-        }
         //如果组件模板已经定
         var placeholder = {
             nodeType: 8,
@@ -41,11 +32,33 @@ avalon.component = function (name, definition) {
             nodeValue: 'ms-widget placeholder'
         }
 
-        var tagName = node.type.indexOf('-') > 0 ? node.type : options.is
-        var docker = resolvedComponents[wid]
+        //处理ms-widget的参数
+        var optionMixin = {}
+        function mixinHooks(option, index) {
+            for (var k in option) {
+                  if(!option.hasOwnProperty(k))
+                      continue
+                   var v = option[k]
+                if (componentEvents[k]) {
+                    if (k in optionMixin) {
+                        optionMixin[k].push(v)
+                    } else {
+                        optionMixin[k] = [option[k]]
+                    }
+                } else if (isFinite(index)) {
+                    optionMixin[k] = v
+                }
+            }
+        }
+        var options = node.props['ms-widget'] || {}
+        options = Array.isArray(options) ? options : [options]
+        options.forEach(mixinHooks)
+
+        var tagName = node.type.indexOf('-') > 0 ? node.type : optionMixin.is
         var docker = resolvedComponents[wid]
         if (!docker) {
-            resolvedComponents[wid] = docker = node
+            resolvedComponents[wid] = node
+            docker = node
         }
         //如果此组件的实例已经存在,那么重新渲染
         if (docker.render) {
@@ -54,7 +67,6 @@ avalon.component = function (name, definition) {
             //如果组件还没有定义,那么返回一个注释节点占位
             return placeholder
         } else {
-
             var type = node.type
             //判定用户传入的标签名是否符合规格
             if (!outerTags[type] && !isCustomTag(type)) {
@@ -82,10 +94,9 @@ avalon.component = function (name, definition) {
                 avalon.warn('模板容器标签最好为' + tagName)
             }
             //将用户标签中的属性合并到组件标签的属性里
-            widgetNode
-            for (var i in docker.props) {
-                if (!skipWidget[i]) {
-                    widgetNode.props[i] = docker.props[i]
+            for (var k in docker.props) {
+                if (!skipWidget[k]) {
+                    widgetNode.props[k] = docker.props[k]
                 }
             }
 
@@ -99,29 +110,40 @@ avalon.component = function (name, definition) {
                 insertSlots(vtree, node, definition.soleSlot)
             }
             //开始构建组件的vm的配置对象
-            var diff = options.diff
-            var define = options.define
+            var diff = optionMixin.diff
+            var define = optionMixin.define
             define = define || avalon.directives.widget.define
-            var $id = options.$id || avalon.makeHashCode(tagName.replace(/-/g, '_'))
+            var $id = optionMixin.$id || avalon.makeHashCode(tagName.replace(/-/g, '_'))
 
-            try { //options可能是vm, 在IE下使用delete会报错
-                delete options.is
-                delete options.diff
-                delete options.define
-            } catch (e) {
-            }
-            var vmodel = define(topVm, definition.defaults, options, vms)
+            var defaults = definition.defaults
+            mixinHooks(defaults, false)
+            var defineArgs = [topVm, defaults].concat(options)
+            var vmodel = define.apply(function (a, b) {
+                for (var k in moreSkip) {
+                    delete a[k]
+                    delete b[k]
+                }
+            }, defineArgs)
             vmodel.$id = $id
+            vmodel.$element = topVm.$element
             avalon.vmodels[$id] = vmodel
+            for (k in componentEvents) {
+                if (optionMixin[k]) {
+                    optionMixin[k].forEach(function (fn) {
+                        vmodel.$watch(k, fn)
+                    })
+                }
+            }
+
             //生成组件的render
             var num = num || String(new Date - 0).slice(0, 6)
             var render = parseView(vtree, num) + '\nreturn (avalon.__widget = vnodes' + num + ');\n'
-         
-            vmodel.$render = render
+            vmodel.$render = topVm.$render
             //触发onInit回调
             vmodel.$fire('onInit', {
                 type: 'init',
                 vmodel: vmodel,
+                wid: wid,
                 target: null
             })
 
@@ -142,7 +164,7 @@ function isCustomTag(type) {
     return type.length > 3 && type.indexOf('-') > 0 &&
             ralphabet.test(type.charAt(0) + type.slice(-1))
 }
-avalon.renderWidget = function(widgetNode){
+avalon.renderWidget = function (widgetNode) {
     var docker = avalon.resolvedComponents[widgetNode.props.wid]
     widgetNode.order = 'ms-widget;;' + widgetNode.order
     if (!isComponentReady(widgetNode)) {
@@ -169,9 +191,8 @@ function isComponentReady(vnode) {
 }
 
 function hasUnresolvedComponent(vnode) {
-
     vnode.children.forEach(function (el) {
-        if (el.nodeType === 8) {
+        if (el.nodeType === 8 && el.props) {
             if ('ms-widget' in el.props) {
                 throw 'unresolved'
             }

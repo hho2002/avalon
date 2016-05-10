@@ -8,23 +8,24 @@
 var share = require('./parts/share')
 var $$midway = share.$$midway
 var $$skipArray = share.$$skipArray
-$$skipArray.$mapping = true
+$$skipArray.$compose = true
+$$skipArray.$decompose = true
 delete $$skipArray
 var modelAdaptor = share.modelAdaptor
 var makeHashCode = avalon.makeHashCode
-var dispatch = require('../strategy/dispatch')
+var dispatch = require('./parts/dispatch')
 
 var $emit = dispatch.$emit
 var $watch = dispatch.$watch
 function canObserve(key, value, skipArray) {
-    // 判定此属性是否还能转换子VM或监听数组
+    // 判定此属性的类型是否为纯对象或数组,方便转换为子VM或监听数组
     return  !skipArray[key] &&
             (key.charAt(0) !== '$') &&
             value && !value.$id && (typeof value === 'object') &&
             (!value.nodeType && !value.nodeName)
 }
 function hasOwn(name) {
-   return (';;' + this.$track + ';;').indexOf(';;' + name + ';;') > -1
+    return (';;' + this.$track + ';;').indexOf(';;' + name + ';;') > -1
 }
 function toJson(val) {
     var xtype = avalon.type(val)
@@ -48,9 +49,9 @@ share.toJson = toJson
 
 if (avalon.window.Proxy) {
     function adjustVm(vm, expr) {
-        if (vm.$mapping) {
+        if (vm.$compose) {//$compose是保持此子vm对应的顶层vm
             var toppath = expr.split(".")[0]
-            return vm.$mapping[toppath] || vm
+            return vm.$compose[toppath] || vm
         } else {
             return vm
         }
@@ -86,10 +87,14 @@ if (avalon.window.Proxy) {
             }
         }
         definition.$track = keys.sort().join(';;')
-        var vm = Proxy.create ? Proxy.create(definition, handlers) : new Proxy(definition, handlers)
+        var vm = proxyfy(definition)
         return makeObserver(vm, heirloom, {}, {}, options)
     }
-
+    
+    function proxyfy(definition) {
+        return Proxy.create ? Proxy.create(definition, handlers) :
+                new Proxy(definition, handlers)
+    }
     $$midway.masterFactory = masterFactory
     //old = before, definition = after
     function slaveFactory(before, after, heirloom) {
@@ -117,47 +122,58 @@ if (avalon.window.Proxy) {
 
     $$midway.slaveFactory = slaveFactory
 
-    function mediatorFactory(before, after, heirloom) {
-        var afterIsProxy = after.$id && after.$events
+    function mediatorFactory(before) {
         var $skipArray = {}
         var definition = {}
-        var $mapping = {}
-        heirloom = heirloom || {}
-        for (var key in before) {
-            definition[key] = before[key]
-            $mapping[key] = before
-        }
-        for (var key in after) {
-            if ($$skipArray[key])
-                continue
-            var val = definition[key] = after[key]
-            if (canObserve(key, val, $skipArray)) {
-                definition[key] = $$midway.modelAdaptor(val, 0, heirloom, {
-                    id: definition.$id + '.' + key
-                })
+        var $compose = {}
+        var heirloom = {}, _after
+        //将这个属性名对应的Proxy放到$compose中
+        for (var i = 0; i < arguments.length; i++) {
+            var obj = arguments[i]
+            var isVm = obj.$id && obj.$events
+            //收集所有键值对及访问器属性
+            for (var key in obj) {
+                if ($$skipArray[key])
+                    continue
+                var val = definition[key] = obj[key]
+                if (canObserve(key, val, $skipArray)) {
+                    definition[key] = $$midway.modelAdaptor(val, 0, heirloom, {
+                        id: definition.$id + '.' + key
+                    })
+                }
+                if(isVm)
+                  $compose[key] = obj
             }
-            $mapping[key] = after
+            if(isVm)
+               _after = obj
         }
-       
+        if (typeof this === 'function') {
+            this($compose, definition)
+        }
+
         definition.$track = Object.keys(definition).sort().join(';;')
 
-        var vm =  Proxy.create ? Proxy.create(definition, handlers) : new Proxy(definition, handlers)
-        if (!afterIsProxy) {
-            for (var i in $mapping) {
-                if ($mapping[i] === after) {
-                    $mapping[i] = vm
-                }
+        var vm = proxyfy(definition)
+        vm.$compose = $compose
+        for(var i in $compose){
+            var part = $compose[i]
+            if(!part.$decompose){
+                part.$decompose = {}
             }
+            part.$decompose[i] = vm
         }
-
-        vm.$mapping = $mapping
-        if(after.$id && before.$element){
-                after.$element = before.$element
-                after.$render = before.$render
-        }
+        
+        
+        // if (_after.$id && before.$element) {
+        //     if (!_after.$element) {
+        //         _after.$element = before.$element
+        //         _after.$render = before.$render 
+        //     } 
+        // }
         return makeObserver(vm, heirloom, {}, {}, {
             id: before.$id,
-            hashcode: makeHashCode('$')
+            hashcode: makeHashCode('$'),
+            master: true
         })
     }
 
@@ -174,7 +190,7 @@ if (avalon.window.Proxy) {
                 enumerable: false,
                 configurable: true
             })
-        }else{
+        } else {
             $vmodel.hasOwnProperty = hasOwn
         }
 
@@ -183,7 +199,7 @@ if (avalon.window.Proxy) {
         $vmodel.$events = heirloom
         if (options.master === true) {
             $vmodel.$element = null
-            $vmodel.$render = 1
+            $vmodel.$render = 0
             $vmodel.$fire = $fire
             $vmodel.$watch = $watch
             heirloom.__vmodel__ = $vmodel
@@ -239,7 +255,7 @@ if (avalon.window.Proxy) {
                 var args = [a, b]
                 for (var j = 0, jn = neo.length; j < jn; j++) {
                     var item = old[j]
-         
+
                     args[j + 2] = modelAdaptor(neo[j], item, item && item.$events, {
                         id: this.$id + '.*',
                         master: true
@@ -271,9 +287,6 @@ if (avalon.window.Proxy) {
     })
 }
 
-
-
-
 var handlers = {
     deleteProperty: function (target, name) {
         if (target.hasOwnProperty(name)) {
@@ -288,11 +301,11 @@ var handlers = {
         return target[name]
     },
     set: function (target, name, value) {
-        if (name === '$model') {
+        if (name === '$model'  ) {
             return
         }
         var oldValue = target[name]
-        if (oldValue !== value) {
+        if (oldValue !== value ) {
             //如果是新属性
             if (!$$skipArray[name] && oldValue === void 0 &&
                     !target.hasOwnProperty(name)) {
@@ -300,26 +313,37 @@ var handlers = {
                 arr.push(name)
                 target.$track = arr.sort().join(';;')
             }
-           
             target[name] = value
+            if(target.$decompose){
+               //让组成mediatorVm的各个顶层vm反向同步meditorVm
+               var whole = target.$decompose[name] 
+               if(whole && (name in whole)){
+                   if(whole.$hashcode){
+                       whole[name] = value
+                   }else{//如果元素不存在就移除
+                       delete target.$decompose[name] 
+                   }
+                   return
+               }
+            }
+           
             if (!$$skipArray[name]) {
                 var curVm = target.$events.__vmodel__
                 //触发视图变更
                 var arr = target.$id.split('.')
                 var top = arr.shift()
 
-                var path = arr.length ? arr.join('.') + '.' + name : name
+                var path = arr.concat(name).join('.')
                 var vm = adjustVm(curVm, path)
-                
-                 if(value && typeof value === 'object' && !value.$id){
+                if (value && typeof value === 'object' && !value.$id) {
                     value = $$midway.modelAdaptor(value, oldValue, vm.$events, {
                         pathname: path,
                         id: target.$id
                     })
                     target[name] = value
-                 }
-                
-                
+                }
+
+
                 var list = vm.$events[path]
                 if (list && list.length) {
                     $emit(list, vm, path, value, oldValue)

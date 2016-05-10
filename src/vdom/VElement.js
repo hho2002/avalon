@@ -15,6 +15,17 @@ function VElement(type, props, children) {
 function skipFalseAndFunction(a) {
     return a !== false && (Object(a) !== a)
 }
+var specal = {
+    "class": function (dom, val) {
+        dom.className = val
+    },
+    style: function (dom, val) {
+        dom.style.cssText = val
+    },
+    'for': function (dom, val) {
+        dom.htmlFor = val
+    }
+}
 VElement.prototype = {
     constructor: VElement,
     toDOM: function () {
@@ -22,9 +33,9 @@ VElement.prototype = {
         for (var i in this.props) {
             var val = this.props[i]
             if (skipFalseAndFunction(val)) {
-                if(i === "class" && avalon.msie < 8){
-                    dom.className = val +''
-                }else{
+                if (specal[i] && avalon.msie < 8) {
+                    specal[i](dom, val)
+                } else {
                     dom.setAttribute(i, val + '')
                 }
             }
@@ -50,7 +61,7 @@ VElement.prototype = {
         } else if (!this.isVoidTag) {
             if (this.children.length) {
                 this.children.forEach(function (c) {
-                    dom.appendChild(avalon.vdomAdaptor(c, 'toDOM'))
+                    c && dom.appendChild(avalon.vdomAdaptor(c, 'toDOM'))
                 })
             } else {
                 dom.appendChild(avalon.parseHTML(this.template))
@@ -74,7 +85,7 @@ VElement.prototype = {
         str += '>'
         if (this.children.length) {
             str += this.children.map(function (c) {
-                return avalon.vdomAdaptor(c, 'toHTML')
+                return c ? avalon.vdomAdaptor(c, 'toHTML'): ''
             }).join('')
         } else {
             str += this.template

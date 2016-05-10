@@ -57,9 +57,8 @@ function masterFactory(definition, heirloom, options) {
 
     for (key in keys) {
         //对普通监控属性或访问器属性进行赋值
-     
         $vmodel[key] = keys[key]
-    
+
         //删除系统属性
         if (key in $skipArray) {
             delete keys[key]
@@ -79,7 +78,7 @@ function slaveFactory(before, after, heirloom, options) {
     var keys = {}
     var skips = {}
     var accessors = {}
-   heirloom = heirloom || {}
+    heirloom = heirloom || {}
     var pathname = options.pathname
     var resue = before.$accessors || {}
     var key, sid, spath
@@ -116,28 +115,51 @@ function slaveFactory(before, after, heirloom, options) {
 }
 
 $$midway.slaveFactory = slaveFactory
-
-function mediatorFactory(before, after, heirloom) {
-    var b = before.$accessors || {}
-    var a = after.$accessors || {}
-    var accessors = {}
+var empty = {}
+function mediatorFactory(before, after) {
     var keys = {}, key
-    //收集所有键值对及访问器属性
-    for (key in before) {
-        if ($$skipArray[key])
-             continue
-        keys[key] = before[key]
-        if (b[key]) {
-            accessors[key] = b[key]
+    var accessors = {}
+    var unresolve = {}
+    var heirloom = {}
+    var arr = avalon.slice(arguments)
+    for (var i = 0; i < arr.length; i++) {
+        var obj = arr[i]
+        //收集所有键值对及访问器属性
+        var config
+        var configName
+        for (var key in obj) {
+            if(!obj.hasOwnProperty(key)){
+                continue
+            }
+            keys[key] = obj[key]
+            var $accessors = obj.$accessors
+            if ($accessors && $accessors[key]) {
+                if (arr.indexOf(obj[key]) === -1) {
+                    accessors[key] = $accessors[key]
+                } else { //去掉vm那个配置对象
+                    config = keys[key]
+                    configName = key
+                    delete keys[key]
+                }
+            } else if (typeof keys[key] !== 'function') {
+                unresolve[key] = 1
+            }
         }
     }
 
-    for (key in after) {
-        keys[key] = after[key]
-        if (a[key]) {
-            accessors[key] = a[key]
+    if (typeof this === 'function') {
+        this(keys, unresolve)
+    }
+    for (key in unresolve) {
+        //系统属性跳过,已经有访问器的属性跳过
+        if ($$skipArray[key] || accessors[key])
+            continue
+        if (!isSkip(key, keys[key], empty)) {
+            accessors[key] = makeAccessor(before.$id, key, heirloom)
+            accessors[key].set(keys[key])
         }
     }
+
     var $vmodel = new Observer()
     $vmodel = addAccessors($vmodel, accessors, keys)
 
@@ -145,6 +167,15 @@ function mediatorFactory(before, after, heirloom) {
         if (!accessors[key]) {//添加不可监控的属性
             $vmodel[key] = keys[key]
         }
+        //用于通过配置对象触发组件的$watch回调
+        if (configName && accessors[key] && config.hasOwnProperty(key)) {
+            var $$ = accessors[key]
+            if (!$$.get.$decompose) {
+                $$.get.$decompose = {}
+            }
+            $$.get.$decompose[configName+'.'+key] = $vmodel
+        }
+
         if (key in $$skipArray) {
             delete keys[key]
         } else {
@@ -153,15 +184,12 @@ function mediatorFactory(before, after, heirloom) {
 
     }
 
-    makeObserver($vmodel, heirloom || {}, keys, accessors, {
+    makeObserver($vmodel, heirloom, keys, accessors, {
         id: before.$id,
         hashcode: makeHashCode('$'),
         master: true
     })
-    if(after.$id && before.$element){
-        after.$element = before.$element
-        after.$render = before.$render
-    }
+
     return $vmodel
 }
 

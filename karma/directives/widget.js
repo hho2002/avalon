@@ -4,6 +4,17 @@ function heredoc(fn) {
             replace(/\*\/[^\/]+$/, '').trim().replace(/>\s*</g, '><')
 }
 
+function fireClick(el) {
+    if (el.click) {
+        el.click()
+    } else {
+//https://developer.mozilla.org/samples/domref/dispatchEvent.html
+        var evt = document.createEvent('MouseEvents')
+        evt.initMouseEvent('click', true, true, window,
+                0, 0, 0, 0, 0, false, false, false, false, 0, null);
+        !el.dispatchEvent(evt);
+    }
+}
 
 describe('widget', function () {
     var body = document.body, div, vm
@@ -141,9 +152,9 @@ describe('widget', function () {
                 }, 300)
             }, 300)
         }, 300)
-    }, 100)
+    })
 
-    it('确保都被扫描', function () {
+    it('确保都被扫描', function (done) {
         div.innerHTML = heredoc(function () {
             /*
              <form ms-controller='widget3'>
@@ -180,6 +191,110 @@ describe('widget', function () {
                 done()
             })
         })
+    });
+
+    it('确保生命周期钩子都生效,其onViewChange回调会在config被修复也触发', function (done) {
+        div.innerHTML = heredoc(function () {
+            /*
+             <form ms-controller='widget4'>
+             <wbr ms-widget="[{is:'ms-dialog',$id:'aaa'},@config]" />
+             </form>
+             */
+        })
+        var hookIndex = 0
+        avalon.component('ms-dialog', {
+            template: '<div class="dialog"><p><slot name="content"></p></div>',
+            defaults: {
+                buttonText: "内容",
+                onInit: function (a) {
+                    hookIndex++
+                    expect(a.type).to.be.equal('init')
+                },
+                onReady: function (a) {
+                    hookIndex++
+                    expect(a.type).to.be.equal('ready')
+                },
+                onViewChange: function (a) {
+                    hookIndex++
+                    expect(a.type).to.be.equal('viewchange')
+                },
+                onDispose: function (a) {
+                    hookIndex++
+                    expect(a.type).to.be.equal('dispose')
+                }
+            },
+            soleSlot: 'content'
+        })
+        vm = avalon.define({
+            $id: 'widget4',
+            config: {
+                content: '弹窗1'
+            }
+        })
+        avalon.scan(div, vm)
+        setTimeout(function () {
+            var divs = div.getElementsByTagName('div')
+            var successRender = false
+            for (var i = 0, el; el = divs[i++]; ) {
+                if (el.nodeType === 1 && el.className === 'dialog') {
+                    successRender = true
+                    break
+                }
+            }
+            expect(successRender).to.be.equal(true)
+            var hasText = div.innerHTML.indexOf('弹窗1') > 0
+            expect(hasText).to.be.equal(true)
+            vm.config.content = '弹窗2'
+            setTimeout(function () {
+                var hasText = div.innerHTML.indexOf('弹窗2') > 0
+                expect(hasText).to.be.equal(true)
+                div.innerHTML = ''
+                setTimeout(function () {
+                    expect(hookIndex).to.be.equal(4)
+                    done()
+                })
+            })
+
+        })
+
+    });
+    
+    it ('操作组件vm来更新组件的界面', function (done) {
+        div.innerHTML = heredoc(function () {
+            /*
+             <div ms-controller="widget5">
+             <xmp ms-widget='{is:"ms-pager"}'></xmp>
+             {{@bb}}
+             </div>
+             */
+        })
+        vm = avalon.define({
+            $id: 'widget5',
+            bb: '其他内容'
+        });
+        avalon.component('ms-pager', {
+            template: '<div><strong>{{@totalPages}}</strong><button ms-click="@xx" type="button">++</button></div>',
+            defaults: {
+                totalPages: 21,
+                xx: function () {
+                    this.totalPages += 1;
+                }
+            }
+        })
+        avalon.scan(div)
+        setTimeout(function(){
+            var button = div.getElementsByTagName('button')[0]
+            var strong = div.getElementsByTagName('strong')[0]
+            expect(strong.innerHTML).to.be.equal('21')
+            fireClick(button)
+            expect(strong.innerHTML).to.be.equal('22')
+            fireClick(button)
+            expect(strong.innerHTML).to.be.equal('23')
+            fireClick(button)
+            expect(strong.innerHTML).to.be.equal('24')
+            done()
+        })
+        
     })
 
 })

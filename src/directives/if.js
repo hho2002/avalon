@@ -4,13 +4,16 @@ var uniqueID = 1
 avalon.directive('if', {
     priority: 6,
     parse: function (binding, num) {
-        var ret = 'var ifVar = '+ avalon.parseExpr(binding,'if')+';\n'
-        ret += 'vnode' + num + '.props["ms-if"] = ifVar;\n'
-        ret += 'if(!ifVar){\n'
-        ret += 'vnode'+ num +'.nodeType = 8;\n'
-        ret += 'vnode'+num+'.directive="if";\n'
-        ret += 'vnode'+num+'.nodeValue="ms-if"\n}\n'
-        return ret
+        var vnode = 'vnode' + num
+        var ret = [
+            'var ifVar = ' + avalon.parseExpr(binding, 'if'),
+            vnode + '.props["ms-if"] = ifVar;',
+            'if(!ifVar){',
+            vnode + '.nodeType = 8;',
+            vnode + '.directive="if";',
+            vnode + '.nodeValue="ms-if"', '}'
+        ]
+        return ret.join('\n') + '\n'
     },
     diff: function (cur, pre, steps) {
         cur.dom = pre.dom
@@ -32,25 +35,36 @@ avalon.directive('if', {
                 if (!element) {
                     element = avalon.vdomAdaptor(vnode, 'toDOM')
                     vnode.dom = element
+                    var props = vnode.props
+                    for (var prop in props) {//如果一开始是隐藏,那么事件会没有绑上
+                        if (prop.match(/ms\-on/g)) {
+                            var fun = props[prop]
+                            if (typeof fun === 'function') {
+                                element._ms_context_ = vnode.onVm
+                                avalon.bind(element, prop.split('-')[2], fun)
+                            }
+                        }
+                    }
+                    if (vnode.onVm) delete vnode.onVm
                 }
                 parent.replaceChild(element, node)
                 if (vnode.steps.count) {
                     patch([element], [vnode], parent, vnode.steps)
                 }
-                avalon.applyEffect(node,vnode, {
+                avalon.applyEffect(node, vnode, {
                     hook: 'onEnterDone'
                 })
                 return (vnode.steps = false)
             } else if (vtype === 8) {
                 //要移除元素节点,在对应位置上插入注释节点
-                avalon.applyEffect(node,vnode,{
+                avalon.applyEffect(node, vnode, {
                     hook: 'onLeaveDone',
-                    cb: function(){
-                       var comment = node._ms_if_ ||
-                        (node._ms_if_ = document.createComment(vnode.nodeValue))
-                
-                       parent.replaceChild(comment, node)
-                   }
+                    cb: function () {
+                        var comment = node._ms_if_ ||
+                                (node._ms_if_ = document.createComment(vnode.nodeValue))
+
+                        parent.replaceChild(comment, node)
+                    }
                 })
             }
         }
