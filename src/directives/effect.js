@@ -1,5 +1,6 @@
 var support = require('../effect/index')
 var Cache = require('../seed/cache')
+var update = require('./_update')
 
 avalon.directive('effect', {
     priority: 5,
@@ -23,10 +24,8 @@ avalon.directive('effect', {
         if (Object(curObj) === curObj) {
             var preObj = pre.props[name]
             if ( Object(preObj) !== preObj || diffObj(curObj, preObj ))  {
-                var list = cur.afterChange = cur.afterChange || []
-                if(avalon.Array.ensure(list, this.update)){
-                   steps.count += 1
-                }
+                update(cur, this.update, steps, 'effect', 'afterChange')
+
             }
         }
     },
@@ -90,8 +89,10 @@ function callNextAnimation() {
 
 avalon.effects = {}
 //这里定义CSS动画
+
+
 avalon.effect = function (name, definition) {
-    avalon.effects[name] = definition
+    avalon.effects[name] = definition || {}
     if (support.css) {
         if (!definition.enterClass) {
             definition.enterClass = name + '-enter'
@@ -216,7 +217,7 @@ function createAction(action) {
 avalon.applyEffect = function(node, vnode, opts){
     var cb = opts.cb
     var hook = opts.hook
-    var curEffect = vnode.nodeType === 1 && vnode.props['ms-effect']
+    var curEffect = vnode.props && vnode.props['ms-effect']
     if(curEffect && !avalon.document.hidden ){
         var old = curEffect[hook]
         if(cb){

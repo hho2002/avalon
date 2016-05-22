@@ -28,76 +28,82 @@ function byRewritePrototype() {
     if (byRewritePrototype.execute) {
         return
     }
-    
+//https://www.web-tinker.com/article/20618.html?utm_source=tuicool&utm_medium=referral
+//IE6-8虽然暴露了Element.prototype,但无法重写已有的DOM API
     byRewritePrototype.execute = true
     var p = Node.prototype
-    var _removeChild = p.removeChild
-    p.removeChild = function (a, b) {
-        _removeChild.call(this, a, b)
+    function rewite(name, fn) {
+        var cb = p[name]
+        p[name] = function (a, b) {
+            return  fn.call(this, cb, a, b)
+        }
+    }
+    rewite('removeChild', function (fn, a, b) {
+        fn.call(this, a, b)
         if (a.nodeType === 1) {
             setTimeout(function () {
                 fireDisposeHook(a)
             })
         }
         return a
-    }
-    var _replaceChild = p.replaceChild
-    p.replaceChild = function (a, b) {
-        _replaceChild.call(this, a, b)
+    })
+
+    rewite('replaceChild', function (fn, a, b) {
+        fn.call(this, a, b)
         if (a.nodeType === 1) {
             setTimeout(function () {
                 fireDisposeHook(a)
             })
         }
         return a
-    }
-    var _innerHTML = p.innerHTML
-    p.innerHTML = function (html) {
+    })
+
+    rewite('innerHTML', function (fn, html) {
         var all = this.getElementsByTagName('*')
-        _innerHTML.call(this, html)
+        fn.call(this, html)
         fireDisposedComponents(all)
-    }
-    var _appendChild = p.appendChild
-    p.appendChild = function (a) {
-        _appendChild.call(this, a)
+    })
+
+    rewite('appendChild', function (fn, a) {
+        fn.call(this, a)
         if (a.nodeType === 1 && this.nodeType === 11) {
             setTimeout(function () {
                 fireDisposeHook(a)
             })
         }
         return a
-    }
-    var _insertBefore = p.insertBefore
-    p.insertBefore = function (a) {
-        _insertBefore.call(this, a)
+    })
+
+    rewite('insertBefore', function (fn, a) {
+        fn.call(this, a)
         if (a.nodeType === 1 && this.nodeType === 11) {
             setTimeout(function () {
                 fireDisposeHook(a)
             })
         }
         return a
-    }
+    })
 }
 
-
-//用于IE6,7
+//用于IE6~8
 var checkDisposeNodes = []
 var checkID = 0
 function byPolling(dom) {
     avalon.Array.ensure(checkDisposeNodes, dom)
     if (!checkID) {
         checkID = setInterval(function () {
-            for (var i = 0, el; el = checkDisposeNodes[i++]; ) {
+            for (var i = 0, el; el = checkDisposeNodes[i]; ) {
                 if (false === fireDisposeHook(el)) {
                     avalon.Array.removeAt(checkDisposeNodes, i)
-                    --i
+                } else {
+                    i++
                 }
             }
             if (checkDisposeNodes.length == 0) {
                 clearInterval(checkID)
                 checkID = 0
             }
-        }, 1000)
+        }, 700)
     }
 }
 
@@ -113,23 +119,25 @@ function fireDisposeHook(el) {
     if (el.nodeType === 1 && el.getAttribute('wid') && !avalon.contains(avalon.root, el)) {
         var wid = el.getAttribute('wid')
         var docker = avalon.resolvedComponents[ wid ]
-        if (docker && docker.vmodel) {
-            var vm = docker.vmodel
-            docker.vmodel.$fire("onDispose", {
-                type: 'dispose',
-                target: el,
-                vmodel: vm
-            })
+        var vm = docker.vmodel
+        var cached = !!docker.cached
+        docker.vmodel.$fire("onDispose", {
+            type: 'dispose',
+            target: el,
+            vmodel: vm,
+            cached: cached
+        })
+        if (docker && docker.vmodel && !cached) {
             vm.$element = null
             vm.$hashcode = false
             delete docker.vmodel
             delete avalon.resolvedComponents[ wid ]
-            return false
         }
+        return false
     }
 }
 
-function fireDisposedComponents (nodes) {
+function fireDisposedComponents(nodes) {
     for (var i = 0, el; el = nodes[i++]; ) {
         fireDisposeHook(el)
     }

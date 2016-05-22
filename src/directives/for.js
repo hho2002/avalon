@@ -1,20 +1,25 @@
 var patch = require('../strategy/patch')
-var Cache = require('../seed/cache')
-
 var rforPrefix = /ms-for\:\s*/
 var rforLeft = /^\s*\(\s*/
 var rforRight = /\s*\)\s*$/
 var rforSplit = /\s*,\s*/
 var rforAs = /\s+as\s+([$\w]+)/
 var rident = require('../seed/regexp').ident
+var update = require('./_update')
+var Cache = require('../seed/cache')
+var loopCache = new Cache(600)
 var rinvalid = /^(null|undefined|NaN|window|this|\$index|\$id)$/
+function getTrackKey(item) {
+    var type = typeof item
+    return item && type === 'object' ? item.$hashcode : type + item
+}
+
 avalon._each = function (obj, fn) {
     if (Array.isArray(obj)) {
         for (var i = 0; i < obj.length; i++) {
             var item = obj[i]
-            var type = typeof item
-            var key = item && type === 'object' ? item.$hashcode : type + item
-            fn(i, obj[i], key)
+            var key = getTrackKey(item)
+            fn(i, item, key)
         }
     } else {
         for (var i in obj) {
@@ -24,6 +29,33 @@ avalon._each = function (obj, fn) {
         }
     }
 }
+
+function getLoopValue(object) {
+    if (Array.isArray(object)) {
+        return object.length + "|" + object.map(getTrackKey).join(';;')
+    } else {
+        var size = 0
+        var arr = []
+        for (var i in object) {
+            if (object.hasOwnProperty(i)) {
+                size++
+                arr.push(i)
+            }
+        }
+        return size + "|" + arr.join(';;')
+    }
+}
+
+avalon._checkLoopChange = function (key, obj) {
+    var cur = getLoopValue(obj)
+    var old = loopCache.get(key)
+    if (typeof old !== 'string' || cur !== old) {
+        loopCache.put(key, cur)
+        return true
+    }
+    return false
+}
+
 avalon.directive('for', {
     priority: 3,
     parse: function (el, num) {
@@ -36,15 +68,18 @@ avalon.directive('for', {
             }
             return ''
         })
+
         var arr = str.replace(rforPrefix, '').split(' in ')
         var assign = 'var loop' + num + ' = ' + avalon.parseExpr(arr[1]) + '\n'
+        var isChange = el.signature + '.hasChange = avalon._checkLoopChange("' + el.signature + '", loop' + num + ')\n'
+
         var alias = aliasAs ? 'var ' + aliasAs + ' = loop' + num + '\n' : ''
         var kv = arr[0].replace(rforLeft, '').replace(rforRight, '').split(rforSplit)
         if (kv.length === 1) {//确保avalon._each的回调有三个参数
             kv.unshift('$key')
         }
         //分别创建isArray, ____n, ___i, ___v, ___trackKey变量
-        return assign + alias + 'avalon._each(loop' + num + ', function(' + kv + ', traceKey){\n'
+        return assign + isChange + alias + 'avalon._each(loop' + num + ', function(' + kv + ', traceKey){\n'
 
     },
     diff: function (current, previous, steps, __index__) {
@@ -57,11 +92,6 @@ avalon.directive('for', {
             pre.components = []
             pre.repeatCount = 0
         }
-//        if (!pre.components) {
-//            var range = getRepeatRange(previous, __index__)//所有节点包括前后锚点
-//            pre.components = getComponents(range.slice(1, -1), pre.signature)
-//            pre.repeatCount = range.length - 2
-//        }
 
         var quota = pre.components.length
         var nodes = current.slice(cur.start, cur.end)
@@ -89,7 +119,7 @@ avalon.directive('for', {
             }
             cur.removedComponents = {}
             //如果没有孩子也要处理一下
-            isChange = cur.components.length === 0 || 
+            isChange = cur.components.length === 0 ||
                     steps.count !== oldCount
 
         } else {
@@ -133,10 +163,8 @@ avalon.directive('for', {
         pre.components.length = 0 //release memory
         delete pre.cache
         if (isChange) {
-            var list = cur.change || (cur.change = [])
-            avalon.Array.ensure(list, this.update)
             cur.steps = steps
-            steps.count += 1
+            update(cur, this.update, steps, 'for')
         }
 
         return __index__ + nodes.length - 1
@@ -159,7 +187,7 @@ avalon.directive('for', {
                     }
                 }
                 node = node.nextSibling
-               
+
             }
             if (!hasRender) {
                 node = startRepeat.nextSibling
@@ -169,12 +197,9 @@ avalon.directive('for', {
                 }
             }
         }
-        
-        if (!startRepeat.domTemplate && vnode.components[0]) {
-            var domTemplate = fragment.cloneNode(false)
-            componentToDom(vnode.components[0], domTemplate)
-            startRepeat.domTemplate = domTemplate
-        }
+
+        var domTemplate = avalon.parseHTML(vnode.template)
+
         var key = vnode.signature
         for (var i in vnode.removedComponents) {
             var el = vnode.removedComponents[i]
@@ -226,7 +251,8 @@ avalon.directive('for', {
                 }
             } else {
                 //添加nodes属性并插入节点
-                var newFragment = startRepeat.domTemplate.cloneNode(true)
+                var newFragment = domTemplate.cloneNode(true)
+                newFragment.appendChild(document.createComment(vnode.signature))
                 cnodes = com.nodes = avalon.slice(newFragment.childNodes)
                 parent.insertBefore(newFragment, insertPoint.nextSibling)
                 applyEffects(com.nodes, com.children, {
@@ -277,24 +303,7 @@ function getRepeatRange(nodes, i) {
     }
     return ret
 }
-var forCache = new Cache(128)
-function componentToDom(com, fragment, cur) {
-    for (var i = 0, c; c = com.children[i++]; ) {
-        if (c.nodeType === 1) {
-            cur = avalon.vdomAdaptor(c, 'toDOM')
-        } else {
-            var expr = c.type + '#' + c.nodeValue
-            var node = forCache.get(expr)
-            if (!node) {
-                node = avalon.vdomAdaptor(c, 'toDOM')
-                forCache.put(expr, node)
-            }
-            cur = node.cloneNode(true)
-        }
-        fragment.appendChild(cur)
-    }
-    return fragment
-}
+
 
 //将要循环的节点根据锚点元素再分成一个个更大的单元,用于diff
 function getComponents(nodes, signature) {

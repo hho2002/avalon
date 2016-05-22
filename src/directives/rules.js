@@ -39,13 +39,19 @@ avalon.shadowCopy(avalon.validators, {
             return value
         }
     },
-    digits: function (value, field, next) {//整数
-        next(/^\-?\d+$/.test(value))
-        return value
+    digits: {
+        message: '必须整数',
+        get: function (value, field, next) {//整数
+            next(/^\-?\d+$/.test(value))
+            return value
+        }
     },
-    number: function (value, field, next) {//数值
-        next(isFinite(value))
-        return value
+    number: {
+        message: '必须数字',
+        get: function (value, field, next) {//数值
+            next(isFinite(value))
+            return value
+        }
     },
     required: {
         message: '必须填写',
@@ -57,7 +63,7 @@ avalon.shadowCopy(avalon.validators, {
     equalto: {
         message: '密码输入不一致',
         get: function (value, field, next) {
-            var id = String(field.data.equalto).slice(1)
+            var id = String(field.data.equalto)
             var other = avalon(document.getElementById(id)).val() || ""
             next(value === other)
             return value

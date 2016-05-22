@@ -4,7 +4,7 @@
         <title>TODO supply a title</title>
         <meta charset="UTF-8">
         <meta name="viewport" content="width=device-width, initial-scale=1.0">
-        <script src="../dist/avalon.next.js"></script>
+        <script src="../dist/avalon.js"></script>
         <script>
             var vm = avalon.define({
                 $id: 'for0',
@@ -12,8 +12,8 @@
                 list: []
             })
             var sexMap = {
-                true: "男",
-                false: "女"
+                'true': "男",
+                'false': "女"
             }
             avalon.config.debug = false
             function genData(n) {
@@ -36,10 +36,10 @@
                 var dd = Date.now() - t1
                 ver.push(dd)
                 console.log('total ' + (dd) + ' ms', ver.length)
-                if (ver.length > 30) {
+                if (ver.length > 60) {
                     console.log('平均耗时 ' + (ver.reduce(function (a, b) {
                         return a + b
-                    }, 0)) / 30 + ' ms!!!')
+                    }, 0)) / 60 + ' ms!!!')
 
                     clearInterval(id)
                 }

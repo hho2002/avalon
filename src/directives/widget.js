@@ -1,5 +1,6 @@
-var disposeDetectStrategy = require('../component/disposeDetectStrategy')
+var disposeDetectStrategy = require('../component/dispose.compact')
 var patch = require('../strategy/patch')
+var update = require('./_update')
 
 //插入点机制,组件的模板中有一些slot元素,用于等待被外面的元素替代
 var dir = avalon.directive('widget', {
@@ -24,7 +25,7 @@ var dir = avalon.directive('widget', {
             '__vmodel__ = vnode' + num + '.vmodel;',
             'try{eval(" new function(){"+ vnode' + num + '.render +"}");',
             '}catch(e){avalon.warn(e)', '}',
-            'vnode' + num + ' = avalon.renderWidget(avalon.__widget[0])', '}',
+            'vnode' + num + ' = avalon.renderComponent(avalon.__widget[0])', '}',
             '__vmodel__ = __backup__;']
         return ret.join('\n') + '\n'
     },
@@ -38,28 +39,21 @@ var dir = avalon.directive('widget', {
         if (!docker || !docker.renderCount) {
             steps.count += 1
             cur.change = [this.replaceByComment]
-        } else if (!pre.props.resolved) {
+        } else if (docker.renderCount && docker.renderCount < 2) {
             cur.steps = steps
-            var list = cur.change || (cur.change = [])
-            if(avalon.Array.ensure(list, this.replaceByComponent)){
-                 steps.count += 1
+            update(cur, this.replaceByComponent, steps, 'widget' )
+
+            function fireReady(dom, vnode) {
+                cur.vmodel.$fire('onReady', {
+                    type: 'ready',
+                    target: dom,
+                    wid: wid,
+                    vmodel: vnode.vmodel
+                })
+                docker.renderCount = 2
             }
-            cur.afterChange = [
-                function (dom, vnode) {
-                    cur.vmodel.$fire('onReady', {
-                        type: 'ready',
-                        target: dom,
-                        wid: wid,
-                        vmodel: vnode.vmodel
-                    })
-                    docker.renderCount = 2
-                }
-            ]
-            //处理模板不存在指令的情况
-            if (cur.children.length === 0) {
-                steps.count += 1
-            }
-            //处理模板不存在指令的情况
+            update(cur, fireReady, steps, 'widget', 'afterChange' )
+
         } else {
             var needUpdate = !cur.diff || cur.diff(cur, pre, steps)
             cur.skipContent = !needUpdate
@@ -67,8 +61,9 @@ var dir = avalon.directive('widget', {
             if (viewChangeObservers && viewChangeObservers.length) {
                 steps.count += 1
                 cur.afterChange = [function (dom, vnode) {
-                        var preHTML = avalon.vdomAdaptor(pre, 'toHTML')
-                        var curHTML = avalon.vdomAdaptor(cur, 'toHTML')
+                        var preHTML = pre.outerHTML
+                        var curHTML = cur.outerHTML || 
+                                (cur.outerHTML = avalon.vdomAdaptor(cur, 'toHTML'))
                         if (preHTML !== curHTML) {
                             cur.vmodel.$fire('onViewChange', {
                                 type: 'viewchange',
@@ -86,7 +81,7 @@ var dir = avalon.directive('widget', {
     addDisposeMonitor: function (dom) {
         if (window.chrome && window.MutationEvent) {
             disposeDetectStrategy.byMutationEvent(dom)
-        } else if (Object.defineProperty && window.Node) {
+        } else if (avalon.modern && typeof window.Node === 'function') {
             disposeDetectStrategy.byRewritePrototype(dom)
         } else {
             disposeDetectStrategy.byPolling(dom)
@@ -109,6 +104,7 @@ var dir = avalon.directive('widget', {
             hasDetect = true
         }
         var com = avalon.vdomAdaptor(node, 'toDOM')
+        node.ouerHTML = avalon.vdomAdaptor(node, 'toHTML')
         if (dom) {
             parent.replaceChild(com, dom)
         } else {

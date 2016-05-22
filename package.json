@@ -1,12 +1,12 @@
 {
-    "name": "avalon",
+    "name": "avalon2",
     "license": "MIT",
     "repository": {
         "type": "git",
         "url": "https://github.com/RubyLouvre/avalon.git"
     },
-    "version": "2.0.0",
-    "description": "mvvm",
+    "version": "2.0.2",
+    "description": "an elegant efficient express mvvm framework",
     "main": "dist/avalon.js",
     "keywords": ["javascript", "mvvm", "virtual dom"],
     "dependencies": {},
